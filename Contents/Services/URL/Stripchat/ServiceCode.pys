@@ -1,0 +1,78 @@
+#!/usr/bin/env python
+
+from urlparse import parse_qs, urlparse
+
+import json, datetime, time
+
+ART             = 'art-default.jpg'
+
+BASE_URL        = 'https://stripchat.com'
+API_BASE        = BASE_URL + '/api/front'
+API_USER        = API_BASE + '/users/{id}'
+API_GOAL        = API_BASE + '/models/username/{username}/goal'
+
+M3U_URL         = 'https://{hlsServer}.stripcdn.com/s-{broadcastServer}/{modelId}/{modelId}.m3u8?{unique}'
+
+####################################################################################################
+def MetadataObjectForURL(url):
+    queryString     = parse_qs(urlparse(url).query, keep_blank_values=True)
+    modelId         = queryString["m"][0]
+
+    apiRequest      = API_USER.format(id=modelId)
+    metadataJson    = JSON.ObjectFromURL(apiRequest, encoding='utf-8')
+    
+    title           = metadataJson['user']['username']
+    thumb           = metadataJson['user']['previewUrl']
+    summary         = metadataJson['user']['description']
+    
+    apiRequest      = API_GOAL.format(username=title)
+    metadataJson    = JSON.ObjectFromURL(apiRequest, encoding='utf-8')
+    
+    goal            = metadataJson['goal']['description']
+
+    if not title:
+        Log.Error(u"* Error: cannot find title within '{0}'".format(url))
+        raise Ex.MediaNotAvailable
+
+    return VideoClipObject(
+        title           = unicode(title.strip()),
+        summary         = unicode('{}\n\n{}'.format(goal.strip(), summary.strip())),
+        year            = datetime.datetime.now().year,
+        thumb           = '{}?{}'.format(thumb, time.time()),
+        art             = R(ART),
+        content_rating  = 'X'
+    )
+
+####################################################################################################
+def MediaObjectsForURL(url):
+    return [
+        MediaObject(
+            protocol='hls',
+            container='mpegts',
+            video_codec=VideoCodec.H264,
+            audio_codec=AudioCodec.AAC,
+            audio_channels=2,
+            optimized_for_streaming=True,
+            parts=[PartObject(key=Callback(PlayVideo, url=url))]
+        )
+    ]
+
+####################################################################################################
+@indirect
+def PlayVideo(url, **kwargs):   
+    queryString     = parse_qs(urlparse(url).query, keep_blank_values=True)
+    
+    hlsServer       = "hls-us"
+    modelId         = queryString["m"][0]
+    broadcastServer = queryString["s"][0]
+
+    playlistUrl     = M3U_URL.format(
+                        hlsServer       = hlsServer,
+                        broadcastServer = broadcastServer,
+                        modelId         = modelId,
+                        unique          = time.time()
+                      )
+
+    Log.Debug('PlaylistURL: {}'.format(playlistUrl))
+    
+    return IndirectResponse(VideoClipObject, key=HTTPLiveStreamURL(playlistUrl))
